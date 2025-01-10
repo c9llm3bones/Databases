@@ -79,8 +79,6 @@ SELECT * FROM Person;
 GO
 
 
-
-
 DROP TABLE IF EXISTS Studio
 GO
 

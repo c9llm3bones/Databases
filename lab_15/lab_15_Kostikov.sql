@@ -15,141 +15,206 @@ GO
 CREATE DATABASE FilmingDB2
 GO
 
-
-DROP TRIGGER IF EXISTS InsertStudio;
-GO
-
 USE FilmingDB1;
 GO
-
 DROP TABLE IF EXISTS Movie;
 GO
 
 CREATE TABLE Movie
 (
-    MovieID INT PRIMARY KEY CHECK (MovieID <= 10),
+    MovieID INT IDENTITY(1, 1) PRIMARY KEY,
     MovieName NVARCHAR(50) NOT NULL,
     ReleaseDate DATE NOT NULL,
     Genre NVARCHAR(50)
 );
 GO
 
-INSERT INTO Movie (MovieID, MovieName, ReleaseDate, Genre)
+INSERT INTO Movie (MovieName, ReleaseDate, Genre)
 VALUES
-(1, 'Inception', GETDATE(), 'Sci-Fi'),
-(2, 'Interstellar', GETDATE(), 'Sci-Fi');
+('Inception', GETDATE(), 'Sci-Fi'),
+('Interstellar', GETDATE(), 'Sci-Fi');
 
 USE FilmingDB2;
 GO
 
-DROP TABLE IF EXISTS Movie;
+DROP TABLE IF EXISTS MovieFullDetails;
 GO
 
-CREATE TABLE Movie
+CREATE TABLE MovieFullDetails
 (
-    MovieID INT PRIMARY KEY CHECK (MovieID > 10),
-    MovieName NVARCHAR(50) NOT NULL,
-    ReleaseDate DATE NOT NULL,
-    Genre NVARCHAR(50)
+    MovieID INT PRIMARY KEY,
+    Budget INT NOT NULL,
+    BoxOffice INT NOT NULL
 );
+GO
+
+USE FilmingDB2;
+GO
+
+DROP VIEW IF EXISTS vw_MovieDetails;
 GO
 
 USE FilmingDB1;
 GO
 
-CREATE VIEW vw_MovieFullDetails
-AS
+DROP VIEW IF EXISTS vw_MovieDetails;
+GO
+
+CREATE VIEW vw_MovieDetails AS
 SELECT 
-    MovieID,
-    MovieName,
-    ReleaseDate,
-    Genre
-FROM FilmingDB1.dbo.Movie
-UNION ALL
-SELECT 
-    MovieID,
-    MovieName,
-    ReleaseDate,
-    Genre
-FROM FilmingDB2.dbo.Movie;
+    m.MovieID,
+    m.MovieName,
+    m.ReleaseDate,
+    m.Genre,
+    mfd.Budget,
+    mfd.BoxOffice
+FROM FilmingDB1.dbo.Movie AS m
+JOIN FilmingDB2.dbo.MovieFullDetails AS mfd
+    ON m.MovieID = mfd.MovieID;
 GO
 
-CREATE TRIGGER trg_Insert_vw_MovieFullDetails
-ON vw_MovieFullDetails
-INSTEAD OF INSERT
+USE FilmingDB1;
+GO
+
+DROP TRIGGER IF EXISTS trg_MovieDelete;
+GO
+
+CREATE TRIGGER trg_MovieDelete
+ON Movie
+FOR DELETE
 AS
 BEGIN
-    BEGIN TRY
-        INSERT INTO FilmingDB1.dbo.Movie (MovieID, MovieName, ReleaseDate, Genre)
-        SELECT 
-            i.MovieID,
-            i.MovieName,
-            i.ReleaseDate,
-            i.Genre
+    
+    DELETE mfd
+    FROM FilmingDB2.dbo.MovieFullDetails mfd
+    JOIN deleted d
+        ON mfd.MovieID = d.MovieID;
+
+END;
+GO
+
+DROP TRIGGER IF EXISTS trg_MovieUpdate;
+GO
+
+CREATE TRIGGER trg_MovieUpdate
+ON Movie
+FOR UPDATE
+AS
+BEGIN
+    UPDATE FilmingDB2.dbo.MovieFullDetails
+    SET MovieID = i.MovieID
+    FROM FilmingDB2.dbo.MovieFullDetails mfd
+    JOIN inserted i
+        ON mfd.MovieID = i.MovieID
+    JOIN deleted d
+        ON mfd.MovieID = d.MovieID;
+
+END;
+GO
+
+select * from Movie
+--update Movie set MovieID=MovieID+1
+select * from Movie
+
+
+USE FilmingDB2;
+GO
+
+DROP TRIGGER IF EXISTS trg_MovieFullDetailsInsert;
+GO
+
+CREATE TRIGGER trg_MovieFullDetailsInsert
+ON MovieFullDetails
+FOR INSERT, UPDATE
+AS
+BEGIN
+    IF EXISTS
+    (
+        SELECT 1
         FROM inserted i
-        WHERE i.MovieID <= 10;
+        JOIN FilmingDB1.dbo.Movie m
+            ON i.MovieID = m.MovieID
+        WHERE m.MovieID IS NULL
+    )
+    BEGIN
+        RAISERROR(
+            'ERROR1 - The specified MovieID does NOT exist in FilmingDB1.Movie.', 
+            16, 
+            1
+        );
+        ROLLBACK TRANSACTION;
+    END;
 
-        INSERT INTO FilmingDB2.dbo.Movie (MovieID, MovieName, ReleaseDate, Genre)
-        SELECT 
-            i.MovieID,
-            i.MovieName,
-            i.ReleaseDate,
-            i.Genre
+END;
+GO
+
+DROP TRIGGER IF EXISTS trg_MovieFullDetailsUpdate;
+GO
+
+CREATE TRIGGER trg_MovieFullDetailsUpdate
+ON MovieFullDetails
+FOR UPDATE
+AS
+BEGIN
+    IF EXISTS
+    (
+        SELECT 1
         FROM inserted i
-        WHERE i.MovieID > 10;
-    END TRY
-    BEGIN CATCH
-        RAISERROR('Error occurred during insert: %s', 16, 1);
+        LEFT JOIN FilmingDB1.dbo.Movie m
+            ON i.MovieID = m.MovieID
+        WHERE m.MovieID IS NULL
+    )
+    BEGIN
+        RAISERROR(
+            'ERROR2 - The updated MovieID does NOT exist in FilmingDB1.Movie.', 
+            16, 
+            1
+        );
         ROLLBACK TRANSACTION;
-    END CATCH;
+    END;
+
 END;
 GO
 
+USE FilmingDB1;
+GO
+INSERT INTO Movie (MovieName, ReleaseDate, Genre)
+VALUES ('Dune', '2024-10-01', 'Sci-Fi');
 
-CREATE TRIGGER trg_Update_vw_MovieFullDetails
-ON vw_MovieFullDetails
-INSTEAD OF UPDATE
-AS
-BEGIN
-    BEGIN TRY
-        UPDATE FilmingDB1.dbo.Movie
-        SET 
-            MovieName = i.MovieName,
-            ReleaseDate = i.ReleaseDate,
-            Genre = i.Genre
-        FROM FilmingDB1.dbo.Movie m
-        JOIN inserted i ON m.MovieID = i.MovieID;
 
-        UPDATE FilmingDB2.dbo.Movie
-        SET 
-            MovieName = i.MovieName,
-            ReleaseDate = i.ReleaseDate,
-            Genre = i.Genre
-        FROM FilmingDB2.dbo.Movie m
-        JOIN inserted i ON m.MovieID = i.MovieID;
-    END TRY
-    BEGIN CATCH
-        RAISERROR('Error occurred during update: %s', 16, 1);
-        ROLLBACK TRANSACTION;
-    END CATCH;
-END;
+USE FilmingDB2;
+GO
+INSERT INTO MovieFullDetails (MovieID, Budget, BoxOffice)
+VALUES (3, 165000000, 402000000);
+
+
+select * from FilmingDB1.dbo.Movie
+update FilmingDB2.dbo.MovieFullDetails set MovieID=7
+where movieID=3
+select * from Movie
+
+UPDATE FilmingDB1.dbo.Movie
+SET Genre = 'Drama'
+WHERE MovieID = 1;
+
+USE FilmingDB2;
+GO
+UPDATE MovieFullDetails
+SET Budget = 180000000
+WHERE MovieID = 1;
+
+
+SELECT * FROM FilmingDB1.dbo.Movie
+SELECT * FROM FilmingDB2.dbo.MovieFullDetails
+SELECT * FROM FilmingDB1.dbo.vw_MovieDetails
+
+
+USE master;
 GO
 
-CREATE TRIGGER trg_Delete_vw_MovieFullDetails
-ON vw_MovieFullDetails
-INSTEAD OF DELETE
-AS
-BEGIN
-    BEGIN TRY
-        DELETE FROM FilmingDB1.dbo.Movie
-        WHERE MovieID IN (SELECT MovieID FROM deleted);
-
-        DELETE FROM FilmingDB2.dbo.Movie
-        WHERE MovieID IN (SELECT MovieID FROM deleted);
-    END TRY
-    BEGIN CATCH
-        RAISERROR('Error occurred during delete: %s', 16, 1);
-        ROLLBACK TRANSACTION;
-    END CATCH;
-END;
+DROP DATABASE FilmingDB1;
 GO
+
+DROP DATABASE FilmingDB2;
+GO
+
